@@ -285,6 +285,61 @@ export function getInvoiceByNumber(invoiceNumber: string): Invoice | undefined {
 export function getInvoicesByCustomer(customerId: string): Invoice[] {
   return getInvoices().filter(i => i.customerId === customerId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
+
+// Pay additional amount on an invoice
+export function payInvoice(invoiceId: string, amount: number): boolean {
+  const invoices = getInvoices();
+  const idx = invoices.findIndex(i => i.id === invoiceId);
+  if (idx === -1 || amount <= 0) return false;
+  
+  const inv = invoices[idx];
+  const actualPayment = Math.min(amount, inv.remaining);
+  if (actualPayment <= 0) return false;
+  
+  inv.paid += actualPayment;
+  inv.remaining = Math.max(0, inv.total - inv.paid);
+  saveInvoices(invoices);
+  
+  // Update customer balance
+  if (inv.customerId) {
+    const customers = getCustomers();
+    const cidx = customers.findIndex(c => c.id === inv.customerId);
+    if (cidx !== -1) {
+      customers[cidx].balance = Math.max(0, customers[cidx].balance - actualPayment);
+      saveCustomers(customers);
+    }
+  }
+  
+  return true;
+}
+
+// Pay customer debt directly (distributes across oldest invoices first)
+export function payCustomerDebt(customerId: string, amount: number): boolean {
+  if (amount <= 0) return false;
+  const customers = getCustomers();
+  const cidx = customers.findIndex(c => c.id === customerId);
+  if (cidx === -1) return false;
+  
+  let remaining = amount;
+  const invoices = getInvoices();
+  const customerInvoices = invoices
+    .filter(i => i.customerId === customerId && i.remaining > 0)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  
+  customerInvoices.forEach(inv => {
+    if (remaining <= 0) return;
+    const idx = invoices.findIndex(i => i.id === inv.id);
+    const pay = Math.min(remaining, inv.remaining);
+    invoices[idx].paid += pay;
+    invoices[idx].remaining = Math.max(0, invoices[idx].total - invoices[idx].paid);
+    remaining -= pay;
+  });
+  
+  saveInvoices(invoices);
+  customers[cidx].balance = Math.max(0, customers[cidx].balance - amount);
+  saveCustomers(customers);
+  return true;
+}
 export function getTodayInvoices(): Invoice[] {
   const today = new Date().toISOString().split('T')[0];
   return getInvoices().filter(i => i.createdAt.startsWith(today));
