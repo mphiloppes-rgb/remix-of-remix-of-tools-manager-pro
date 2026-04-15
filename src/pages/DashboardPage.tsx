@@ -9,9 +9,12 @@ import {
 } from "lucide-react";
 import { getTodayInvoices, getTodayExpenses, getLowStockProducts, getCustomersWithDebt } from "@/lib/store";
 import { Link } from "react-router-dom";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import logo from "@/assets/logo.png";
 
 export default function DashboardPage() {
+  const { refreshKey } = useStoreRefresh();
+
   const data = useMemo(() => {
     const todayInvoices = getTodayInvoices();
     const todayExpenses = getTodayExpenses();
@@ -26,7 +29,7 @@ export default function DashboardPage() {
     const netProfit = totalSales - totalCost - totalExpenses;
 
     return { totalSales, totalExpenses, netProfit, lowStock, debtCustomers, invoiceCount: todayInvoices.length };
-  }, []);
+  }, [refreshKey]);
 
   const stats = [
     { label: "مبيعات اليوم", value: data.totalSales, icon: ShoppingCart, gradient: "from-primary/20 to-primary/5", iconBg: "bg-primary/10", iconColor: "text-primary" },
@@ -44,7 +47,6 @@ export default function DashboardPage() {
         <div className="absolute -bottom-16 -right-16 w-48 h-48 rounded-full opacity-[0.05]" style={{ background: 'radial-gradient(circle, hsl(200 85% 60%), transparent)' }} />
         
         <div className="flex flex-col items-center text-center relative z-10">
-          {/* Big circular logo */}
           <div className="relative mb-5">
             <div className="absolute inset-0 rounded-full animate-pulse-ring" style={{ background: 'hsla(200, 85%, 48%, 0.15)', transform: 'scale(1.15)' }} />
             <div className="w-28 h-28 rounded-full overflow-hidden border-4 shadow-xl animate-float" style={{ borderColor: 'hsl(200, 85%, 48%)', boxShadow: '0 8px 40px hsla(200, 85%, 48%, 0.3)' }}>

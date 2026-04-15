@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
-import { Search, Eye, Printer, Receipt, RotateCcw, UserPlus, Package } from "lucide-react";
-import { getInvoices, getCustomers, getInvoiceByNumber, returnInvoiceFull, returnInvoiceItem, assignInvoiceToCustomer, type Invoice } from "@/lib/store";
+import { Search, Eye, Printer, Receipt, RotateCcw, UserPlus, Banknote } from "lucide-react";
+import { getInvoices, getCustomers, returnInvoiceFull, returnInvoiceItem, assignInvoiceToCustomer, payInvoice, type Invoice } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { toast } from "@/hooks/use-toast";
 import InvoicePrint from "@/components/InvoicePrint";
 
 export default function InvoicesPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
+  const { refreshKey, refresh } = useStoreRefresh();
   const invoices = useMemo(() => getInvoices().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()), [refreshKey]);
   const customers = useMemo(() => getCustomers(), [refreshKey]);
   const [search, setSearch] = useState("");
@@ -28,7 +29,12 @@ export default function InvoicesPage() {
   const [assignCustomerId, setAssignCustomerId] = useState("");
   const [confirmAssign, setConfirmAssign] = useState(false);
 
-  // Search by invoice number
+  // Payment dialog
+  const [showPayDialog, setShowPayDialog] = useState(false);
+  const [payInv, setPayInv] = useState<Invoice | null>(null);
+  const [payAmount, setPayAmount] = useState<number>(0);
+  const [confirmPay, setConfirmPay] = useState(false);
+
   const [invoiceNumSearch, setInvoiceNumSearch] = useState("");
 
   const filtered = useMemo(() => {
@@ -72,7 +78,7 @@ export default function InvoicesPage() {
       toast({ title: "تم المرتجع ✅", description: returnType === 'full' ? "تم ارتجاع الفاتورة بالكامل وتحديث المخزون" : `تم ارتجاع ${returnQty} قطعة وتحديث المخزون` });
       setShowReturnDialog(false);
       setSelectedInvoice(null);
-      setRefreshKey(k => k + 1);
+      refresh();
     } else {
       toast({ title: "خطأ", description: "لم يتم إتمام المرتجع - تحقق من الكمية", variant: "destructive" });
     }
@@ -93,8 +99,30 @@ export default function InvoicesPage() {
     toast({ title: "تم ✅", description: "تم إسناد الفاتورة للعميل بنجاح" });
     setShowAssignDialog(false);
     setSelectedInvoice(null);
-    setRefreshKey(k => k + 1);
+    refresh();
     setConfirmAssign(false);
+  };
+
+  const openPayDialog = (inv: Invoice) => {
+    setPayInv(inv);
+    setPayAmount(0);
+    setConfirmPay(false);
+    setShowPayDialog(true);
+  };
+
+  const handlePayInvoice = () => {
+    if (!confirmPay) { setConfirmPay(true); return; }
+    if (!payInv || payAmount <= 0) {
+      toast({ title: "خطأ", description: "يرجى إدخال مبلغ صحيح", variant: "destructive" });
+      setConfirmPay(false);
+      return;
+    }
+    payInvoice(payInv.id, payAmount);
+    toast({ title: "تم الدفع ✅", description: `تم تسجيل دفع ${payAmount.toLocaleString()} ج.م` });
+    setShowPayDialog(false);
+    setSelectedInvoice(null);
+    setConfirmPay(false);
+    refresh();
   };
 
   const getReturnableQty = (inv: Invoice, productId: string) => {
@@ -131,7 +159,7 @@ export default function InvoicesPage() {
                 <h3 className="font-extrabold text-lg">تفاصيل الفاتورة</h3>
                 <button onClick={() => setSelectedInvoice(null)} className="p-2 hover:bg-muted rounded-xl transition-colors text-muted-foreground">✕</button>
               </div>
-              <p className="text-sm text-muted-foreground mb-1">رقم الفاتورة: <span className="font-mono font-bold text-primary">{selectedInvoice.invoiceNumber || selectedInvoice.id.slice(-6)}</span></p>
+              <p className="text-sm text-muted-foreground mb-1">رقم الفاتورة: <span className="font-mono font-bold text-primary">{selectedInvoice.invoiceNumber}</span></p>
               <p className="text-sm text-muted-foreground mb-1">{new Date(selectedInvoice.createdAt).toLocaleString("ar-EG")}</p>
               {selectedInvoice.customerName && <p className="text-sm mb-2">العميل: <strong>{selectedInvoice.customerName}</strong></p>}
               {selectedInvoice.isReturned && <p className="text-sm text-destructive font-extrabold mb-2">⚠️ تم ارتجاع هذه الفاتورة</p>}
@@ -155,13 +183,16 @@ export default function InvoicesPage() {
                 <div className="flex justify-between"><span>المدفوع</span><span className="text-success font-bold">{selectedInvoice.paid.toLocaleString()} ج.م</span></div>
                 <div className="flex justify-between font-extrabold text-destructive"><span>المتبقي</span><span>{selectedInvoice.remaining.toLocaleString()} ج.م</span></div>
               </div>
-              <div className="grid grid-cols-3 gap-2 mt-4">
-                <button onClick={() => handlePrint(selectedInvoice)} className="btn-primary py-2.5 text-sm"><Printer size={16} /> طباعة</button>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button onClick={() => handlePrint(selectedInvoice)} className="btn-primary py-2.5 text-sm flex-1"><Printer size={16} /> طباعة</button>
                 {!selectedInvoice.isReturned && (
-                  <button onClick={() => openReturnDialog(selectedInvoice)} className="flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-400 py-2.5 rounded-xl font-extrabold text-sm hover:bg-amber-500/30 transition-all"><RotateCcw size={16} /> مرتجع</button>
+                  <button onClick={() => openReturnDialog(selectedInvoice)} className="flex items-center justify-center gap-1.5 bg-amber-500/20 text-amber-400 py-2.5 px-4 rounded-xl font-extrabold text-sm hover:bg-amber-500/30 transition-all flex-1"><RotateCcw size={16} /> مرتجع</button>
                 )}
                 {!selectedInvoice.customerId && (
-                  <button onClick={() => openAssignDialog(selectedInvoice)} className="flex items-center justify-center gap-1.5 bg-emerald-500/20 text-emerald-400 py-2.5 rounded-xl font-extrabold text-sm hover:bg-emerald-500/30 transition-all"><UserPlus size={16} /> إسناد</button>
+                  <button onClick={() => openAssignDialog(selectedInvoice)} className="flex items-center justify-center gap-1.5 bg-emerald-500/20 text-emerald-400 py-2.5 px-4 rounded-xl font-extrabold text-sm hover:bg-emerald-500/30 transition-all flex-1"><UserPlus size={16} /> إسناد</button>
+                )}
+                {selectedInvoice.remaining > 0 && (
+                  <button onClick={() => openPayDialog(selectedInvoice)} className="flex items-center justify-center gap-1.5 bg-success/20 text-success py-2.5 px-4 rounded-xl font-extrabold text-sm hover:bg-success/30 transition-all flex-1"><Banknote size={16} /> دفع</button>
                 )}
               </div>
             </div>
@@ -172,7 +203,7 @@ export default function InvoicesPage() {
         {showReturnDialog && returnInvoice && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 backdrop-blur-sm animate-fade-in-up">
             <div className="glass-modal rounded-2xl p-6 w-full max-w-md mx-4 animate-scale-in">
-              <h3 className="font-extrabold text-lg mb-4 flex items-center gap-2"><RotateCcw size={20} className="text-amber-400" /> مرتجع فاتورة #{returnInvoice.invoiceNumber || returnInvoice.id.slice(-6)}</h3>
+              <h3 className="font-extrabold text-lg mb-4 flex items-center gap-2"><RotateCcw size={20} className="text-amber-400" /> مرتجع فاتورة #{returnInvoice.invoiceNumber}</h3>
               
               <div className="space-y-4">
                 <div className="flex gap-3">
@@ -217,7 +248,7 @@ export default function InvoicesPage() {
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 backdrop-blur-sm animate-fade-in-up">
             <div className="glass-modal rounded-2xl p-6 w-full max-w-sm mx-4 animate-scale-in">
               <h3 className="font-extrabold text-lg mb-4 flex items-center gap-2"><UserPlus size={20} className="text-emerald-400" /> إسناد فاتورة لعميل</h3>
-              <p className="text-sm text-muted-foreground mb-4">فاتورة رقم: <span className="font-mono font-bold">{assignInvoice.invoiceNumber || assignInvoice.id.slice(-6)}</span></p>
+              <p className="text-sm text-muted-foreground mb-4">فاتورة رقم: <span className="font-mono font-bold">{assignInvoice.invoiceNumber}</span></p>
               
               <select value={assignCustomerId} onChange={(e) => { setAssignCustomerId(e.target.value); setConfirmAssign(false); }} className="input-field w-full mb-4">
                 <option value="">اختر عميل...</option>
@@ -240,6 +271,39 @@ export default function InvoicesPage() {
           </div>
         )}
 
+        {/* Payment Dialog */}
+        {showPayDialog && payInv && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-foreground/20 backdrop-blur-sm animate-fade-in-up">
+            <div className="glass-modal rounded-2xl p-6 w-full max-w-sm mx-4 animate-scale-in">
+              <h3 className="font-extrabold text-lg mb-4 flex items-center gap-2"><Banknote size={20} className="text-success" /> تسجيل دفع</h3>
+              <div className="bg-accent/50 rounded-xl p-4 mb-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span>فاتورة رقم</span><span className="font-mono font-bold">{payInv.invoiceNumber}</span></div>
+                <div className="flex justify-between"><span>الإجمالي</span><span className="font-extrabold">{payInv.total.toLocaleString()} ج.م</span></div>
+                <div className="flex justify-between"><span>المدفوع</span><span className="font-extrabold text-success">{payInv.paid.toLocaleString()} ج.م</span></div>
+                <div className="flex justify-between"><span>المتبقي</span><span className="font-extrabold text-destructive">{payInv.remaining.toLocaleString()} ج.م</span></div>
+              </div>
+              <div className="mb-3">
+                <label className="text-sm font-bold text-muted-foreground">المبلغ</label>
+                <input type="number" className="input-field w-full mt-1" value={payAmount || ""} onChange={(e) => { setPayAmount(Number(e.target.value)); setConfirmPay(false); }} placeholder="0" />
+              </div>
+              <button onClick={() => { setPayAmount(payInv.remaining); setConfirmPay(false); }} className="w-full mb-3 text-sm py-2 rounded-xl bg-accent hover:bg-accent/80 font-bold transition-all">
+                دفع كامل المتبقي ({payInv.remaining.toLocaleString()} ج.م)
+              </button>
+              {confirmPay && (
+                <div className="bg-success/10 border border-success/20 rounded-xl p-3 text-center mb-3">
+                  <p className="text-sm font-extrabold text-success">هل أنت متأكد من تسجيل دفع {payAmount.toLocaleString()} ج.م؟</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={handlePayInvoice} disabled={payAmount <= 0} className="btn-primary py-3 text-sm disabled:opacity-50">
+                  {confirmPay ? "تأكيد الدفع" : "دفع"}
+                </button>
+                <button onClick={() => { setShowPayDialog(false); setConfirmPay(false); }} className="bg-secondary text-secondary-foreground py-3 rounded-xl font-extrabold text-sm hover:opacity-90 transition-all">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="glass-table animate-fade-in-up">
           <table className="w-full text-sm">
             <thead>
@@ -257,19 +321,20 @@ export default function InvoicesPage() {
             <tbody>
               {filtered.map((inv, idx) => (
                 <tr key={inv.id} className="border-b hover:bg-muted/20 cursor-pointer transition-colors animate-fade-in-up" style={{ animationDelay: `${idx * 0.03}s` }}>
-                  <td className="p-3 font-mono font-bold text-primary" onClick={() => setSelectedInvoice(inv)}>{inv.invoiceNumber || inv.id.slice(-6)}</td>
+                  <td className="p-3 font-mono font-bold text-primary" onClick={() => setSelectedInvoice(inv)}>{inv.invoiceNumber}</td>
                   <td className="p-3 text-muted-foreground" onClick={() => setSelectedInvoice(inv)}>{new Date(inv.createdAt).toLocaleDateString("ar-EG")}</td>
                   <td className="p-3 font-bold" onClick={() => setSelectedInvoice(inv)}>{inv.customerName || "بدون عميل"}</td>
                   <td className="p-3 font-extrabold" onClick={() => setSelectedInvoice(inv)}>{inv.total.toLocaleString()}</td>
                   <td className="p-3" onClick={() => setSelectedInvoice(inv)}>{inv.paid.toLocaleString()}</td>
                   <td className={`p-3 font-extrabold ${inv.remaining > 0 ? "text-destructive" : "text-success"}`} onClick={() => setSelectedInvoice(inv)}>{inv.remaining.toLocaleString()}</td>
                   <td className="p-3" onClick={() => setSelectedInvoice(inv)}>
-                    {inv.isReturned ? <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-1 rounded-lg font-bold">مرتجع</span> : <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-lg font-bold">مكتملة</span>}
+                    {inv.isReturned ? <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-1 rounded-lg font-bold">مرتجع</span> : inv.remaining > 0 ? <span className="text-xs bg-destructive/20 text-destructive px-2 py-1 rounded-lg font-bold">عليها باقي</span> : <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-lg font-bold">مكتملة</span>}
                   </td>
                   <td className="p-3 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={(e) => { e.stopPropagation(); setSelectedInvoice(inv); }} className="p-1.5 hover:bg-muted rounded-lg transition-colors"><Eye size={15} className="text-muted-foreground" /></button>
                       {!inv.isReturned && <button onClick={(e) => { e.stopPropagation(); openReturnDialog(inv); }} className="p-1.5 hover:bg-amber-500/10 rounded-lg transition-colors"><RotateCcw size={15} className="text-amber-400" /></button>}
+                      {inv.remaining > 0 && <button onClick={(e) => { e.stopPropagation(); openPayDialog(inv); }} className="p-1.5 hover:bg-success/10 rounded-lg transition-colors"><Banknote size={15} className="text-success" /></button>}
                     </div>
                   </td>
                 </tr>

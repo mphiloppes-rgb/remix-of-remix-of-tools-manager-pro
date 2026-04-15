@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
 import { Search, Plus, Minus, Trash2, Printer, Check, ShoppingCart, AlertTriangle } from "lucide-react";
 import { getProducts, getCustomers, addInvoice, type InvoiceItem } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { toast } from "@/hooks/use-toast";
 import InvoicePrint from "@/components/InvoicePrint";
 
 export default function POSPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
+  const { refreshKey, refresh } = useStoreRefresh();
   const products = useMemo(() => getProducts(), [refreshKey]);
   const customers = useMemo(() => getCustomers(), [refreshKey]);
   const [search, setSearch] = useState("");
@@ -36,6 +37,10 @@ export default function POSPage() {
   };
 
   const addToCart = (product: typeof products[0]) => {
+    if (product.quantity <= 0) {
+      toast({ title: "⚠️ نفد المخزون", description: `${product.name} غير متاح حالياً`, variant: "destructive" });
+      return;
+    }
     const existing = cart.find((i) => i.productId === product.id);
     const currentQty = existing ? existing.quantity : 0;
     if (currentQty >= product.quantity) {
@@ -58,7 +63,12 @@ export default function POSPage() {
         return;
       }
     }
-    setCart(cart.map((i) => { if (i.productId !== productId) return i; const newQty = i.quantity + delta; if (newQty <= 0) return null; return { ...i, quantity: newQty, total: newQty * i.unitPrice }; }).filter(Boolean) as InvoiceItem[]);
+    setCart(cart.map((i) => {
+      if (i.productId !== productId) return i;
+      const newQty = i.quantity + delta;
+      if (newQty <= 0) return null;
+      return { ...i, quantity: newQty, total: newQty * i.unitPrice };
+    }).filter(Boolean) as InvoiceItem[]);
   };
 
   const removeFromCart = (productId: string) => setCart(cart.filter((i) => i.productId !== productId));
@@ -80,7 +90,7 @@ export default function POSPage() {
     setLastInvoice(invoice);
     toast({ title: "تم ✅", description: `تم إتمام البيع - فاتورة رقم ${invoice.invoiceNumber}` });
     setCart([]); setPaid(0); setCustomerId("");
-    setRefreshKey(k => k + 1);
+    refresh();
   };
 
   const proceedWithoutCustomer = () => {
@@ -151,11 +161,13 @@ export default function POSPage() {
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto">
               {filtered.map((p, idx) => (
-                <button key={p.id} onClick={() => addToCart(p)} className="stat-card text-right hover:border-primary cursor-pointer animate-fade-in-up" style={{ animationDelay: `${idx * 0.03}s` }}>
+                <button key={p.id} onClick={() => addToCart(p)} disabled={p.quantity <= 0} className={`stat-card text-right cursor-pointer animate-fade-in-up ${p.quantity <= 0 ? 'opacity-50 cursor-not-allowed' : 'hover:border-primary'}`} style={{ animationDelay: `${idx * 0.03}s` }}>
                   <p className="font-extrabold text-sm truncate">{p.name}</p>
                   {p.brand && <p className="text-xs text-muted-foreground">{p.brand}</p>}
                   <p className="text-primary font-extrabold mt-2">{p.sellPrice.toLocaleString()} ج.م</p>
-                  <p className="text-xs text-muted-foreground">المخزون: {p.quantity}</p>
+                  <p className={`text-xs ${p.quantity <= 0 ? 'text-destructive font-extrabold' : 'text-muted-foreground'}`}>
+                    المخزون: {p.quantity} {p.quantity <= 0 && '(نفد)'}
+                  </p>
                 </button>
               ))}
               {filtered.length === 0 && <p className="col-span-full text-center text-muted-foreground py-8">لا توجد منتجات</p>}
