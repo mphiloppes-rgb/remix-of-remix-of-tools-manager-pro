@@ -1,0 +1,239 @@
+// Local storage based data store
+
+export interface Product {
+  id: string;
+  name: string;
+  code?: string;
+  brand?: string;
+  model?: string;
+  costPrice: number;
+  sellPrice: number;
+  quantity: number;
+  lowStockThreshold: number;
+  createdAt: string;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone?: string;
+  balance: number; // positive = they owe us, negative = we owe them
+  createdAt: string;
+}
+
+export interface InvoiceItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  costPrice: number;
+  total: number;
+}
+
+export interface Invoice {
+  id: string;
+  items: InvoiceItem[];
+  total: number;
+  paid: number;
+  remaining: number;
+  customerId?: string;
+  customerName?: string;
+  createdAt: string;
+}
+
+export interface Expense {
+  id: string;
+  name: string;
+  amount: number;
+  type: string;
+  date: string;
+  createdAt: string;
+}
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+}
+
+function getItem<T>(key: string, fallback: T): T {
+  try {
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setItem<T>(key: string, data: T): void {
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+// Products
+export function getProducts(): Product[] {
+  return getItem<Product[]>('pos_products', []);
+}
+export function saveProducts(products: Product[]) {
+  setItem('pos_products', products);
+}
+export function addProduct(p: Omit<Product, 'id' | 'createdAt'>): Product {
+  const products = getProducts();
+  const product: Product = { ...p, id: generateId(), createdAt: new Date().toISOString() };
+  products.push(product);
+  saveProducts(products);
+  return product;
+}
+export function updateProduct(id: string, updates: Partial<Product>) {
+  const products = getProducts().map(p => p.id === id ? { ...p, ...updates } : p);
+  saveProducts(products);
+}
+export function deleteProduct(id: string) {
+  saveProducts(getProducts().filter(p => p.id !== id));
+}
+export function getLowStockProducts(): Product[] {
+  return getProducts().filter(p => p.quantity <= p.lowStockThreshold);
+}
+
+// Customers
+export function getCustomers(): Customer[] {
+  return getItem<Customer[]>('pos_customers', []);
+}
+export function saveCustomers(customers: Customer[]) {
+  setItem('pos_customers', customers);
+}
+export function addCustomer(c: Omit<Customer, 'id' | 'createdAt'>): Customer {
+  const customers = getCustomers();
+  const customer: Customer = { ...c, id: generateId(), createdAt: new Date().toISOString() };
+  customers.push(customer);
+  saveCustomers(customers);
+  return customer;
+}
+export function updateCustomer(id: string, updates: Partial<Customer>) {
+  const customers = getCustomers().map(c => c.id === id ? { ...c, ...updates } : c);
+  saveCustomers(customers);
+}
+export function deleteCustomer(id: string) {
+  saveCustomers(getCustomers().filter(c => c.id !== id));
+}
+export function getCustomersWithDebt(): Customer[] {
+  return getCustomers().filter(c => c.balance > 0);
+}
+
+// Invoices
+export function getInvoices(): Invoice[] {
+  return getItem<Invoice[]>('pos_invoices', []);
+}
+export function saveInvoices(invoices: Invoice[]) {
+  setItem('pos_invoices', invoices);
+}
+export function addInvoice(inv: Omit<Invoice, 'id' | 'createdAt'>): Invoice {
+  const invoices = getInvoices();
+  const invoice: Invoice = { ...inv, id: generateId(), createdAt: new Date().toISOString() };
+  invoices.push(invoice);
+  saveInvoices(invoices);
+
+  // Update product quantities
+  const products = getProducts();
+  inv.items.forEach(item => {
+    const idx = products.findIndex(p => p.id === item.productId);
+    if (idx !== -1) {
+      products[idx].quantity = Math.max(0, products[idx].quantity - item.quantity);
+    }
+  });
+  saveProducts(products);
+
+  // Update customer balance if applicable
+  if (inv.customerId && inv.remaining > 0) {
+    const customers = getCustomers();
+    const cidx = customers.findIndex(c => c.id === inv.customerId);
+    if (cidx !== -1) {
+      customers[cidx].balance += inv.remaining;
+      saveCustomers(customers);
+    }
+  }
+
+  return invoice;
+}
+export function getInvoicesByCustomer(customerId: string): Invoice[] {
+  return getInvoices().filter(i => i.customerId === customerId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+export function getTodayInvoices(): Invoice[] {
+  const today = new Date().toISOString().split('T')[0];
+  return getInvoices().filter(i => i.createdAt.startsWith(today));
+}
+
+// Expenses
+export function getExpenses(): Expense[] {
+  return getItem<Expense[]>('pos_expenses', []);
+}
+export function saveExpenses(expenses: Expense[]) {
+  setItem('pos_expenses', expenses);
+}
+export function addExpense(e: Omit<Expense, 'id' | 'createdAt'>): Expense {
+  const expenses = getExpenses();
+  const expense: Expense = { ...e, id: generateId(), createdAt: new Date().toISOString() };
+  expenses.push(expense);
+  saveExpenses(expenses);
+  return expense;
+}
+export function deleteExpense(id: string) {
+  saveExpenses(getExpenses().filter(e => e.id !== id));
+}
+export function getTodayExpenses(): Expense[] {
+  const today = new Date().toISOString().split('T')[0];
+  return getExpenses().filter(e => e.date.startsWith(today));
+}
+
+// Reports
+export function getDateRange(period: 'daily' | 'weekly' | 'monthly' | 'yearly'): { start: Date; end: Date } {
+  const now = new Date();
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  
+  switch (period) {
+    case 'daily': break;
+    case 'weekly': start.setDate(start.getDate() - 7); break;
+    case 'monthly': start.setMonth(start.getMonth() - 1); break;
+    case 'yearly': start.setFullYear(start.getFullYear() - 1); break;
+  }
+  return { start, end };
+}
+
+export function getReport(period: 'daily' | 'weekly' | 'monthly' | 'yearly') {
+  const { start, end } = getDateRange(period);
+  const invoices = getInvoices().filter(i => {
+    const d = new Date(i.createdAt);
+    return d >= start && d <= end;
+  });
+  const expenses = getExpenses().filter(e => {
+    const d = new Date(e.date);
+    return d >= start && d <= end;
+  });
+
+  const totalSales = invoices.reduce((s, i) => s + i.total, 0);
+  const totalCost = invoices.reduce((s, i) => s + i.items.reduce((a, it) => a + it.costPrice * it.quantity, 0), 0);
+  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+  const netProfit = totalSales - totalCost - totalExpenses;
+
+  // Best selling products
+  const productSales: Record<string, { name: string; qty: number; revenue: number }> = {};
+  invoices.forEach(inv => {
+    inv.items.forEach(item => {
+      if (!productSales[item.productId]) {
+        productSales[item.productId] = { name: item.productName, qty: 0, revenue: 0 };
+      }
+      productSales[item.productId].qty += item.quantity;
+      productSales[item.productId].revenue += item.total;
+    });
+  });
+  const bestSelling = Object.values(productSales).sort((a, b) => b.qty - a.qty).slice(0, 10);
+
+  return {
+    totalSales,
+    totalCost,
+    totalExpenses,
+    netProfit,
+    invoiceCount: invoices.length,
+    bestSelling,
+  };
+}
