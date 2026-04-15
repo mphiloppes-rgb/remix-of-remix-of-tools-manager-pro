@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { BarChart3, TrendingUp, TrendingDown, Receipt, Star, Download } from "lucide-react";
 import { getReport } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { exportReportToExcel } from "@/lib/excel-export";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
@@ -12,8 +13,9 @@ const periods: { key: Period; label: string }[] = [
 ];
 
 export default function ReportsPage() {
+  const { refreshKey } = useStoreRefresh();
   const [period, setPeriod] = useState<Period>("daily");
-  const report = useMemo(() => getReport(period), [period]);
+  const report = useMemo(() => getReport(period), [period, refreshKey]);
 
   const stats = [
     { label: "إجمالي المبيعات", value: report.totalSales, icon: BarChart3, iconBg: "bg-primary/10", iconColor: "text-primary" },

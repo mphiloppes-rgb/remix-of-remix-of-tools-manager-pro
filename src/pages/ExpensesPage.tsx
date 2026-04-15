@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Plus, Trash2, X, Check, Wallet } from "lucide-react";
 import { getExpenses, addExpense, deleteExpense, type Expense } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { toast } from "@/hooks/use-toast";
 
 const expenseTypes = ["كهرباء", "مياه", "إيجار", "مواصلات", "صيانة", "أخرى"];
 
 export default function ExpensesPage() {
-  const [expenses, setExpenses] = useState(() => getExpenses());
+  const { refreshKey, refresh } = useStoreRefresh();
+  const expenses = useMemo(() => getExpenses(), [refreshKey]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", amount: 0, type: "أخرى", customType: "", date: new Date().toISOString().split("T")[0] });
 
@@ -25,7 +27,7 @@ export default function ExpensesPage() {
       : form.type;
 
     addExpense({ name: finalName, amount: form.amount, type: typeLabel, date: form.date });
-    setExpenses(getExpenses());
+    refresh();
     setShowForm(false);
     setForm({ name: "", amount: 0, type: "أخرى", customType: "", date: new Date().toISOString().split("T")[0] });
     toast({ title: "تمت الإضافة ✅" });
@@ -34,7 +36,7 @@ export default function ExpensesPage() {
   const handleDelete = (id: string) => {
     if (confirm("حذف هذا المصروف؟")) {
       deleteExpense(id);
-      setExpenses(getExpenses());
+      refresh();
     }
   };
 
@@ -80,19 +82,12 @@ export default function ExpensesPage() {
               {form.type === "أخرى" && (
                 <div className="animate-fade-in-up">
                   <label className="text-sm font-bold text-muted-foreground">وصف المصروف</label>
-                  <input
-                    className="input-field w-full mt-1"
-                    placeholder="اكتب نوع المصروف هنا..."
-                    value={form.customType}
-                    onChange={(e) => setForm({ ...form, customType: e.target.value })}
-                  />
+                  <input className="input-field w-full mt-1" placeholder="اكتب نوع المصروف هنا..." value={form.customType} onChange={(e) => setForm({ ...form, customType: e.target.value })} />
                 </div>
               )}
               <div><label className="text-sm font-bold text-muted-foreground">التاريخ</label><input type="date" className="input-field w-full mt-1" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div>
             </div>
-            <button onClick={handleSave} className="w-full mt-4 btn-primary py-3">
-              <Check size={18} /> إضافة
-            </button>
+            <button onClick={handleSave} className="w-full mt-4 btn-primary py-3"><Check size={18} /> إضافة</button>
           </div>
         </div>
       )}

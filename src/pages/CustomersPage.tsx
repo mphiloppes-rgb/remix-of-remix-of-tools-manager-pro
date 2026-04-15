@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { Plus, Trash2, X, Check, Eye, Edit2, Users } from "lucide-react";
-import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getInvoicesByCustomer, type Customer, type Invoice } from "@/lib/store";
+import { useState, useMemo } from "react";
+import { Plus, Trash2, X, Check, Eye, Edit2, Users, Banknote } from "lucide-react";
+import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getInvoicesByCustomer, payCustomerDebt, type Customer, type Invoice } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { toast } from "@/hooks/use-toast";
 import InvoicePrint from "@/components/InvoicePrint";
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState(() => getCustomers());
+  const { refreshKey, refresh } = useStoreRefresh();
+  const customers = useMemo(() => getCustomers(), [refreshKey]);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", balance: 0 });
@@ -13,17 +15,50 @@ export default function CustomersPage() {
   const [customerInvoices, setCustomerInvoices] = useState<Invoice[]>([]);
   const [printInvoice, setPrintInvoice] = useState<Invoice | null>(null);
 
+  // Payment dialog
+  const [showPayDialog, setShowPayDialog] = useState(false);
+  const [payCustomer, setPayCustomer] = useState<Customer | null>(null);
+  const [payAmount, setPayAmount] = useState<number>(0);
+  const [confirmPay, setConfirmPay] = useState(false);
+
   const openAdd = () => { setForm({ name: "", phone: "", balance: 0 }); setEditId(null); setShowForm(true); };
   const openEdit = (c: Customer) => { setForm({ name: c.name, phone: c.phone || "", balance: c.balance }); setEditId(c.id); setShowForm(true); };
   const handleSave = () => {
     if (!form.name.trim()) { toast({ title: "خطأ", description: "الاسم مطلوب", variant: "destructive" }); return; }
     if (editId) { updateCustomer(editId, form); toast({ title: "تم التحديث ✅" }); }
     else { addCustomer(form); toast({ title: "تمت الإضافة ✅" }); }
-    setCustomers(getCustomers()); setShowForm(false);
+    refresh(); setShowForm(false);
   };
-  const handleDelete = (id: string) => { if (confirm("هل تريد حذف هذا العميل؟")) { deleteCustomer(id); setCustomers(getCustomers()); } };
+  const handleDelete = (id: string) => {
+    if (confirm("هل تريد حذف هذا العميل؟")) {
+      deleteCustomer(id);
+      refresh();
+      toast({ title: "تم الحذف ✅" });
+    }
+  };
   const viewHistory = (customerId: string) => { setSelectedCustomer(customerId); setCustomerInvoices(getInvoicesByCustomer(customerId)); };
   const handlePrintInvoice = (inv: Invoice) => { setPrintInvoice(inv); setTimeout(() => { window.print(); setPrintInvoice(null); }, 300); };
+
+  const openPayDialog = (c: Customer) => {
+    setPayCustomer(c);
+    setPayAmount(0);
+    setConfirmPay(false);
+    setShowPayDialog(true);
+  };
+
+  const handlePay = () => {
+    if (!confirmPay) { setConfirmPay(true); return; }
+    if (!payCustomer || payAmount <= 0) {
+      toast({ title: "خطأ", description: "يرجى إدخال مبلغ صحيح", variant: "destructive" });
+      setConfirmPay(false);
+      return;
+    }
+    payCustomerDebt(payCustomer.id, payAmount);
+    toast({ title: "تم الدفع ✅", description: `تم تسجيل دفع ${payAmount.toLocaleString()} ج.م` });
+    setShowPayDialog(false);
+    setConfirmPay(false);
+    refresh();
+  };
 
   return (
     <>
@@ -54,6 +89,40 @@ export default function CustomersPage() {
           </div>
         )}
 
+        {/* Payment Dialog */}
+        {showPayDialog && payCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 backdrop-blur-sm animate-fade-in-up">
+            <div className="glass-modal rounded-2xl p-6 w-full max-w-sm mx-4 animate-scale-in">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-extrabold text-lg flex items-center gap-2"><Banknote size={20} className="text-success" /> تسديد مديونية</h3>
+                <button onClick={() => { setShowPayDialog(false); setConfirmPay(false); }} className="p-2 hover:bg-muted rounded-xl transition-colors"><X size={20} /></button>
+              </div>
+              <div className="bg-accent/50 rounded-xl p-4 mb-4 space-y-2 text-sm">
+                <div className="flex justify-between"><span>العميل</span><span className="font-extrabold">{payCustomer.name}</span></div>
+                <div className="flex justify-between"><span>المديونية الحالية</span><span className="font-extrabold text-destructive">{payCustomer.balance.toLocaleString()} ج.م</span></div>
+              </div>
+              <div className="mb-4">
+                <label className="text-sm font-bold text-muted-foreground">المبلغ المدفوع</label>
+                <input type="number" className="input-field w-full mt-1" value={payAmount || ""} onChange={(e) => { setPayAmount(Number(e.target.value)); setConfirmPay(false); }} placeholder="0" max={payCustomer.balance} />
+              </div>
+              <button onClick={() => { setPayAmount(payCustomer.balance); setConfirmPay(false); }} className="w-full mb-3 text-sm py-2 rounded-xl bg-accent hover:bg-accent/80 font-bold transition-all">
+                تسديد كامل المبلغ ({payCustomer.balance.toLocaleString()} ج.م)
+              </button>
+              {confirmPay && (
+                <div className="bg-success/10 border border-success/20 rounded-xl p-3 text-center mb-3">
+                  <p className="text-sm font-extrabold text-success">هل أنت متأكد من تسجيل دفع {payAmount.toLocaleString()} ج.م؟</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={handlePay} disabled={payAmount <= 0} className="btn-primary py-3 text-sm disabled:opacity-50">
+                  {confirmPay ? "تأكيد الدفع" : "دفع"}
+                </button>
+                <button onClick={() => { setShowPayDialog(false); setConfirmPay(false); }} className="bg-secondary text-secondary-foreground py-3 rounded-xl font-extrabold text-sm hover:opacity-90 transition-all">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {selectedCustomer && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/20 backdrop-blur-sm animate-fade-in-up">
             <div className="glass-modal rounded-2xl p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto animate-scale-in">
@@ -68,9 +137,10 @@ export default function CustomersPage() {
                   {customerInvoices.map(inv => (
                     <div key={inv.id} className="p-4 bg-accent/50 rounded-xl flex justify-between items-center hover:bg-accent transition-colors">
                       <div>
-                        <p className="font-bold text-sm">{new Date(inv.createdAt).toLocaleDateString("ar-EG")} - {new Date(inv.createdAt).toLocaleTimeString("ar-EG")}</p>
+                        <p className="font-bold text-sm">فاتورة #{inv.invoiceNumber} - {new Date(inv.createdAt).toLocaleDateString("ar-EG")}</p>
                         <p className="text-sm text-muted-foreground">{inv.items.length} منتج | الإجمالي: {inv.total.toLocaleString()} ج.م</p>
                         {inv.remaining > 0 && <p className="text-xs text-destructive font-extrabold">متبقي: {inv.remaining.toLocaleString()} ج.م</p>}
+                        {inv.isReturned && <p className="text-xs text-amber-500 font-extrabold">مرتجع</p>}
                       </div>
                       <button onClick={() => handlePrintInvoice(inv)} className="p-2 hover:bg-muted rounded-xl transition-colors"><Eye size={18} /></button>
                     </div>
@@ -94,11 +164,18 @@ export default function CustomersPage() {
                   <button onClick={() => handleDelete(c.id)} className="p-2 rounded-xl hover:bg-destructive/10 text-destructive transition-colors"><Trash2 size={16} /></button>
                 </div>
               </div>
-              <div className="mt-3 flex justify-between items-center">
+              <div className="mt-3">
                 <span className={`text-lg font-extrabold ${c.balance > 0 ? "text-destructive" : "text-success"}`}>
                   {c.balance > 0 ? `عليه ${c.balance.toLocaleString()} ج.م` : "لا مديونية"}
                 </span>
-                <button onClick={() => viewHistory(c.id)} className="text-sm text-primary font-bold hover:underline">كشف حساب</button>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button onClick={() => viewHistory(c.id)} className="flex-1 text-sm text-primary font-bold py-2 rounded-xl bg-primary/10 hover:bg-primary/20 transition-all">كشف حساب</button>
+                {c.balance > 0 && (
+                  <button onClick={() => openPayDialog(c)} className="flex-1 text-sm font-bold py-2 rounded-xl bg-success/10 text-success hover:bg-success/20 transition-all flex items-center justify-center gap-1">
+                    <Banknote size={14} /> تسديد
+                  </button>
+                )}
               </div>
             </div>
           ))}

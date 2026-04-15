@@ -1,12 +1,14 @@
 import { useState, useMemo } from "react";
 import { Plus, Edit2, Trash2, Search, X, Check, Package } from "lucide-react";
 import { getProducts, addProduct, updateProduct, deleteProduct, type Product } from "@/lib/store";
+import { useStoreRefresh } from "@/hooks/use-store-refresh";
 import { toast } from "@/hooks/use-toast";
 
 const emptyForm = { name: "", code: "", brand: "", model: "", costPrice: 0, sellPrice: 0, quantity: 0, lowStockThreshold: 5 };
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState(() => getProducts());
+  const { refreshKey, refresh } = useStoreRefresh();
+  const products = useMemo(() => getProducts(), [refreshKey]);
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -25,10 +27,10 @@ export default function ProductsPage() {
     if (!form.name.trim()) { toast({ title: "خطأ", description: "اسم المنتج مطلوب", variant: "destructive" }); return; }
     if (editId) { updateProduct(editId, form); toast({ title: "تم التحديث ✅" }); }
     else { addProduct(form); toast({ title: "تمت الإضافة ✅" }); }
-    setProducts(getProducts()); setShowForm(false);
+    refresh(); setShowForm(false);
   };
 
-  const handleDelete = (id: string) => { if (confirm("هل تريد حذف هذا المنتج؟")) { deleteProduct(id); setProducts(getProducts()); toast({ title: "تم الحذف" }); } };
+  const handleDelete = (id: string) => { if (confirm("هل تريد حذف هذا المنتج؟")) { deleteProduct(id); refresh(); toast({ title: "تم الحذف" }); } };
   const setField = (key: string, value: any) => setForm((f) => ({ ...f, [key]: value }));
 
   return (
