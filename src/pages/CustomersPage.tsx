@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Trash2, X, Check, Eye } from "lucide-react";
+import { Plus, Trash2, X, Check, Eye, Edit2 } from "lucide-react";
 import { getCustomers, addCustomer, updateCustomer, deleteCustomer, getInvoicesByCustomer, type Customer, type Invoice } from "@/lib/store";
 import { toast } from "@/hooks/use-toast";
 import InvoicePrint from "@/components/InvoicePrint";
