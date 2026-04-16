@@ -6,7 +6,6 @@ import {
   loginByPin,
   logout,
   getUsers,
-  type AppUser,
 } from "@/lib/auth";
 import logo from "@/assets/logo.png";
 
@@ -25,13 +24,26 @@ export default function PinLock({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Auto-attempt login at exact pin match
+  useEffect(() => {
+    if (pin.length >= 4) {
+      const u = getUsers().find(x => x.pin === pin);
+      if (u) {
+        loginByPin(pin);
+        setPin("");
+        setError("");
+        window.dispatchEvent(new Event("auth-change"));
+        setTick(t => t + 1);
+      }
+    }
+  }, [pin]);
+
   const enabled = isAuthEnabled();
   const user = getCurrentUser();
   const users = getUsers();
 
-  // Auth disabled OR user exists -> show app
   if (!enabled) return <>{children}</>;
-  if (users.length === 0) return <>{children}</>; // no users yet, fail open
+  if (users.length === 0) return <>{children}</>;
   if (user) return <>{children}</>;
 
   const tryLogin = () => {
@@ -54,15 +66,6 @@ export default function PinLock({ children }: { children: React.ReactNode }) {
     if (n === "<") { setPin(p => p.slice(0, -1)); return; }
     if (pin.length < 6) setPin(p => p + n);
   };
-
-  useEffect(() => {
-    if (pin.length >= 4) {
-      // auto-try at 4 digits if exact match
-      const u = getUsers().find(x => x.pin === pin);
-      if (u) tryLogin();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pin]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4" dir="rtl">
